@@ -1,6 +1,10 @@
 import gc
 import logging
 import os
+
+# 设置 hugging face 代理路径
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 import time
 from pathlib import Path
 import numpy as np
@@ -14,6 +18,7 @@ from trains.singleTask.model import dmd
 from trains.singleTask.distillnets import get_distillation_kernel, get_distillation_kernel_homo
 from trains.singleTask.misc import softmax
 import sys
+# 确保 GPU 编号在不同运行环境中一致
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
 logger = logging.getLogger('MMSA')
@@ -52,13 +57,14 @@ def DMD_run(
     # Initialization
     model_name = model_name.lower()
     dataset_name = dataset_name.lower()
-    
+    # 读取配置
     if config_file != "":
         config_file = Path(config_file)
     else: # use default config files
         config_file = Path(__file__).parent / "config" / "config.json"
     if not config_file.is_file():
         raise ValueError(f"Config file {str(config_file)} not found.")
+    # 保存模型路径
     if model_save_dir == "":
         model_save_dir = Path.home() / "MMSA" / "saved_models"
     Path(model_save_dir).mkdir(parents=True, exist_ok=True)
@@ -71,7 +77,7 @@ def DMD_run(
     seeds = seeds if seeds != [] else [1111, 1112, 1113, 1114, 1115]
     logger = _set_logger(log_dir, model_name, dataset_name, verbose_level)
     
-
+    # 从配置文件加载模型参数
     args = get_config_regression(model_name, dataset_name, config_file)
     args.is_distill = is_distill  # use or not use distill, train use, test not use
     args.mode = mode # train or test
@@ -84,15 +90,18 @@ def DMD_run(
     if config:
         args.update(config)
 
-
+    # 保存结果
     res_save_dir = Path(res_save_dir) / "normal"
     res_save_dir.mkdir(parents=True, exist_ok=True)
+    # 多种子集实验循环
     model_results = []
     for i, seed in enumerate(seeds):
         setup_seed(seed)
         args['cur_seed'] = i + 1
+        # ! 这里真正运行模型
         result = _run(args, num_workers, is_tune)
         model_results.append(result)
+    # 启动知识蒸馏时
     if args.is_distill:
         criterions = list(model_results[0].keys())
         # save result to csv
@@ -114,7 +123,7 @@ def DMD_run(
 
 
 def _run(args, num_workers=4, is_tune=False, from_sena=False):
-
+    # 准备 dataloader
     dataloader = MMDataLoader(args, num_workers)
     if args.is_distill:
         print("training for DMD")
