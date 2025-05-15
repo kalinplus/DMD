@@ -1,5 +1,7 @@
 """Graph distillation for hetero GD"""
-
+'''
+但是这个实现与论文不符，并没有在蒸馏之前，使用 MulT 对私有模态特征进行增强
+'''
 import torch
 from torch.autograd import Variable
 import torch.nn as nn

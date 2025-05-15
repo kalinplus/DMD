@@ -46,7 +46,8 @@ class DistillationKernel(nn.Module):
         (z_logits, z_reprs), dim=1).view(n_modalities, batch_size,
                                          self.gd_size * 2)
 
-
+    # 图网络的 forward，就是从 from 到 to，按照论文公式算出 权重 和 边
+    # 毕竟它没有输出，蒸馏的目的是平衡模态
     edges = []
     for j in self.to_idx:
       for i in self.from_idx:
@@ -61,7 +62,10 @@ class DistillationKernel(nn.Module):
     edges = F.softmax(edges * self.alpha, dim=1).transpose(0, 1)  # normalized value of edges
     return edges, edges_origin
 
-
+  """
+  实现和理论还是有所不同的，论文中提出的实际上只有 loss for logits (|| W * E ||)
+  但是这里的代码实现增加了常见的 表示损失（将 loss for logits 扩展到中间层） 和 正则化损失
+  """
   def distillation_loss(self, logits, reprs, edges):
     """Calculate graph distillation losses, which include:
     regularization loss, loss for logits, and loss for representation.

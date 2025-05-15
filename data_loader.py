@@ -184,6 +184,7 @@ class MMDataset(Dataset):
 '''
 返回一个字典，里面包含 3 个 dataloader
 '''
+# TODO: 改这里，动态重采样
 def MMDataLoader(args, num_workers):
 
     datasets = {

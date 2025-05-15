@@ -1,5 +1,6 @@
 .idea
 dataset/MOSI
+log/dmd-mosi.log
 
 # Python generated cache
 __pycache__/

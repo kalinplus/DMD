@@ -143,7 +143,10 @@ def _run(args, num_workers=4, is_tune=False, from_sena=False):
         assert len(from_idx) >= 1
 
         model = []
+        # from trains.singleTask.model import dmd 来自这里
+        # getattr(dmd, 'DMD') 获取 DMD类本身，用 args 来调用类的构造函数创建类对象 model_dmd
         model_dmd = getattr(dmd, 'DMD')(args)
+        # 共享模态蒸馏模型
         model_distill_homo = getattr(get_distillation_kernel_homo, 'DistillationKernel')(n_classes=1,
                                                                                hidden_size=
                                                                                args.dst_feature_dim_nheads[0],
@@ -155,7 +158,7 @@ def _run(args, num_workers=4, is_tune=False, from_sena=False):
                                                                                metric=args.metric_low,
                                                                                alpha=1 / 8,
                                                                                hyp_params=args)
-
+        # 私有模态蒸馏模型
         model_distill_hetero = getattr(get_distillation_kernel, 'DistillationKernel')(n_classes=1,
                                                                                    hidden_size=
                                                                                    args.dst_feature_dim_nheads[0] * 2,
@@ -175,16 +178,17 @@ def _run(args, num_workers=4, is_tune=False, from_sena=False):
         print("testing phase for DMD")
         model = getattr(dmd, 'DMD')(args)
         model = model.cuda()
-
+    # 动态获取一个训练器实例，ATIO 是一个工厂类
     trainer = ATIO().getTrain(args)
 
 
-    if args.mode == 'test':
+    if args.mode == 'test':  # 进行测试
         model.load_state_dict(torch.load('pt/mosi-aligned.pth'))
         results = trainer.do_test(model, dataloader['test'], mode="TEST")
         sys.stdout.flush()
         input('[Press Any Key to start another run]')
-    else:
+    # TODO: 要改就在这里改，先预热，预热结束后，训练一次，执行调制一次
+    else:  # 进行训练
         epoch_results = trainer.do_train(model, dataloader, return_epoch_results=from_sena)
         model[0].load_state_dict(torch.load('pt/dmd.pth'))
 
