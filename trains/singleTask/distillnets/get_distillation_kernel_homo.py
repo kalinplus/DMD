@@ -24,9 +24,7 @@ class DistillationKernel(nn.Module):
     self.to_idx = to_idx
     self.from_idx = from_idx
     self.alpha = alpha
-    print("before 1st .cuda()")
     self.gd_prior = torch.FloatTensor(gd_prior).cuda()
-    print("after 1st .cuda()")
     self.gd_reg = gd_reg
     self.w_losses = w_losses
     self.metric = metric

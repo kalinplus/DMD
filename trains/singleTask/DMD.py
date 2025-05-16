@@ -59,6 +59,7 @@ class DMD():
         model = net
 
         # TODO: 要改就在这里改，先预热，预热结束后，训练一次，执行调制一次
+        # ! 训练会一致进行，直到因为没有优化而早停为止
         while True:
             epochs += 1
             y_pred, y_true = [], []
@@ -140,11 +141,13 @@ class DMD():
                     loss_s_sr = loss_sl_slr + loss_sv_slv + loss_sa_sla
 
                     # ort loss
-                    cosine_similarity_s_c_l = self.cosine(output['s_l'], output['c_l'],
+                    # print("output['s_l']", output['s_l'].shape)
+                    # print("output['c_l']", output['c_l'].shape)
+                    cosine_similarity_s_c_l = self.cosine(output['s_l'].transpose(0,1).contiguous().view(labels.size(0),-1), output['c_l'].transpose(0,1).contiguous().view(labels.size(0),-1),
                                                           torch.tensor([-1]).cuda()).mean(0)
-                    cosine_similarity_s_c_v = self.cosine(output['s_v'], output['c_v'],
+                    cosine_similarity_s_c_v = self.cosine(output['s_v'].transpose(0,1).contiguous().view(labels.size(0),-1), output['c_v'].transpose(0,1).contiguous().view(labels.size(0),-1),
                                                           torch.tensor([-1]).cuda()).mean(0)
-                    cosine_similarity_s_c_a = self.cosine(output['s_a'], output['c_a'],
+                    cosine_similarity_s_c_a = self.cosine(output['s_a'].transpose(0,1).contiguous().view(labels.size(0),-1), output['c_a'].transpose(0,1).contiguous().view(labels.size(0),-1),
                                                           torch.tensor([-1]).cuda()).mean(0)
                     loss_ort = cosine_similarity_s_c_l + cosine_similarity_s_c_v + cosine_similarity_s_c_a
 
