@@ -58,6 +58,7 @@ class DMD():
         net.append(net_distill_hetero)
         model = net
 
+        # TODO: 要改就在这里改，先预热，预热结束后，训练一次，执行调制一次
         while True:
             epochs += 1
             y_pred, y_true = [], []
@@ -65,13 +66,14 @@ class DMD():
                 mod.train()
 
             train_loss = 0.0
-            left_epochs = self.args.update_epochs
+            left_epochs = self.args.update_epochs  # 默认值为 10，使得梯度累计 10 次才更新一次
             with tqdm(dataloader['train']) as td:
                 for batch_data in td:
-
+                    # 在小批量训练中模拟大批量训练的效果，节省显存
                     if left_epochs == self.args.update_epochs:
                         optimizer.zero_grad()
                     left_epochs -= 1
+                    # 准备输入，都移动到指定设备
                     vision = batch_data['vision'].to(self.args.device)
                     audio = batch_data['audio'].to(self.args.device)
                     text = batch_data['text'].to(self.args.device)
@@ -79,7 +81,7 @@ class DMD():
                     labels = labels.view(-1, 1)
 
                     logits_homo, reprs_homo, logits_hetero, reprs_hetero = [], [], [], []
-
+                    # DMD 模型前向传播
                     output = model[0](text, audio, vision, is_distill=True)
 
                     # logits for homo GD
@@ -176,13 +178,13 @@ class DMD():
 
                     combined_loss.backward()
 
-
+                    # 梯度 clipping
                     if self.args.grad_clip != -1.0:
                         params = list(model[0].parameters()) + \
                                  list(model[1].parameters()) + \
                                  list(model[2].parameters())
                         nn.utils.clip_grad_value_(params, self.args.grad_clip)
-
+                    # 累计 loss
                     train_loss += combined_loss.item()
 
                     y_pred.append(output['output_logit'].cpu())

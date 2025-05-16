@@ -187,7 +187,6 @@ def _run(args, num_workers=4, is_tune=False, from_sena=False):
         results = trainer.do_test(model, dataloader['test'], mode="TEST")
         sys.stdout.flush()
         input('[Press Any Key to start another run]')
-    # TODO: 要改就在这里改，先预热，预热结束后，训练一次，执行调制一次
     else:  # 进行训练
         epoch_results = trainer.do_train(model, dataloader, return_epoch_results=from_sena)
         model[0].load_state_dict(torch.load('pt/dmd.pth'))
