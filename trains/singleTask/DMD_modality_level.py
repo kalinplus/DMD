@@ -62,10 +62,11 @@ class DMD():
         cont = 0.0
         cona = 0.0
         conv = 0.0
+        model = model.to(device)
 
         with torch.no_grad():
             model.eval()
-            for step, batch in tqdm(enumerate(dataloader)):
+            for step, batch in tqdm(enumerate(dataloader['train'])):
                 # raw_text = batch['raw_text']
 
                 text = batch['text'].to(device)  # (B, T_t, D_t)
@@ -92,23 +93,16 @@ class DMD():
 
                 # ! 原论文结果中，7类准确率结果普遍偏低，故而使用它作为分类指标
                 bins = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0]
-
+                # 一个一个样本处理
                 for i, item in enumerate(labels):
                     # 依次算出各种输入情况下的计算结果
-                    tva = np.digitize(tva_output[i].cpu().data.numpy(), bins)
-                    index_tva = np.argmax(tva)
-                    tv = np.digitize(tv_output[i].cpu().data.numpy(), bins)
-                    index_tv = np.argmax(tv)
-                    ta = np.digitize(ta_output[i].cpu().data.numpy(), bins)
-                    index_ta = np.argmax(ta)
-                    va = np.digitize(va_output[i].cpu().data.numpy(), bins)
-                    index_va = np.argmax(va)
-                    t = np.digitize(t_output[i].cpu().data.numpy(), bins)
-                    index_t = np.argmax(t)
-                    v = np.digitize(v_output[i].cpu().data.numpy(), bins)
-                    index_v = np.argmax(v)
-                    a = np.digitize(a_output[i].cpu().data.numpy(), bins)
-                    index_a = np.argmax(a)
+                    index_tva = np.digitize(tva_output[i].cpu().data.numpy(), bins)
+                    index_tv = np.digitize(tv_output[i].cpu().data.numpy(), bins)
+                    index_ta = np.digitize(ta_output[i].cpu().data.numpy(), bins)
+                    index_va = np.digitize(va_output[i].cpu().data.numpy(), bins)
+                    index_t = np.digitize(t_output[i].cpu().data.numpy(), bins)
+                    index_v = np.digitize(v_output[i].cpu().data.numpy(), bins)
+                    index_a = np.digitize(a_output[i].cpu().data.numpy(), bins)
 
                     index_label = np.digitize(labels[i].cpu().data.numpy(), bins)
 
@@ -136,11 +130,14 @@ class DMD():
                         value_a = 1.0
 
                     contrib_t = (1.0 / 3.0) * (value_t + value_tva - value_va) + (1.0 / 6.0) * (value_ta + value_tv - value_v - value_a)
-                    contrib_t = max(0, contrib_t)
                     contrib_v = (1.0 / 3.0) * (value_v + value_tva - value_ta) + (1.0 / 6.0) * (value_tv + value_va - value_t - value_a)
-                    contrib_v = max(0, contrib_v)
                     contrib_a = (1.0 / 3.0) * (value_a + value_tva - value_tv) + (1.0 / 6.0) * (value_ta + value_va - value_t - value_v)
+                    contrib_t = max(0, contrib_t)
+                    contrib_v = max(0, contrib_v)
                     contrib_a = max(0, contrib_a)
+                    cont += contrib_t
+                    conv += contrib_v
+                    cona += contrib_a
 
                     contribution[int(index[i])] = (contrib_t, contrib_v, contrib_a)
 
@@ -176,6 +173,7 @@ class DMD():
             part_cont /= num
             part_conv /= num
             part_cona /= num
+            # ! part_x 是全局变量，因为模态级的重采样，就是要根据历史所有样本，计算该模态的平均贡献
             part_t.append(part_cont)
             part_v.append(part_conv)
             part_a.append(part_cona)
