@@ -327,6 +327,7 @@ class DMD(nn.Module):
             'last_h_v': h_vs[-1],
             'last_h_a': h_as[-1],
             'logits_c': logits_c,
+            # 这个是真正需要的预测结果，用于计算贡献。但是这只是 t, v, a 3 模态输入下的输出
             'output_logit': output
         }
         return res

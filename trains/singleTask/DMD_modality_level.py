@@ -1,3 +1,4 @@
+import os
 import logging
 import numpy as np
 import torch
@@ -5,10 +6,18 @@ import torch.nn as nn
 from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
+
+from data_loader import MMDataset, MMDataset_modality_level, MMDataLoader_modality_level
 from ..utils import MetricsTop, dict_to_str
 from .HingeLoss import HingeLoss
 
 logger = logging.getLogger('MMSA')
+
+# 所以这三个变量有啥用？
+sample_nums = []
+part_t = []
+part_a = []
+part_v = []
 
 class MSE(nn.Module):
     def __init__(self):
@@ -29,7 +38,173 @@ class DMD():
         self.MSE = MSE()
         self.sim_loss = HingeLoss()
 
+    def execute_modulation(self, args, model, device, dataloader, log_name, epoch):
+        """
+        估计贡献参考 VEMC 中的 execute_modulation, 前向传播/计算精读参考下方 do_test
+        Args:
+            args: 传入的参数，参考 VEMC 项目
+            model: 主模型，也就是 3 个模型中的 model[0]
+            device: 运行的设备，cpu/cuda
+            dataloader: 传入 data_laoder.py 中 dataloder 类返回的字典，需要指定用哪个，应该是训练集
+            log_name: 日志文件位置
+            epoch: 这是第几个 epoch
+
+        Returns:
+            cont, conv, cona, 三个模态的贡献
+            dataloader  包含 3个 dataloader 的列表，其中 dataloader['train'] 为空（预热）或 重采样过的
+
+        """
+        train_dataloader = None
+        n_classes = args.n_classes
+
+        contribution = {}
+        softmax = nn.Softmax(dim=1)
+        cont = 0.0
+        cona = 0.0
+        conv = 0.0
+
+        with torch.no_grad():
+            model.eval()
+            for step, batch in tqdm(enumerate(dataloader)):
+                # raw_text = batch['raw_text']
+
+                text = batch['text'].to(device)  # (B, T_t, D_t)
+                vision = batch['vision'].to(device)  # (B, T_v, D_v)
+                audio = batch['audio'].to(device)  # (B, T_a, D_a)
+                text_zero = torch.zeros_like(text)
+                vision_zero = torch.zeros_like(vision)
+                audio_zero = torch.zeros_like(audio)
+
+                index = batch['index']
+                ids = batch['id']
+                labels = batch['labels']['M'].to(device)  # 假设只用 'M' 标签
+                remain = batch['remain'].to(device)  # (B,)
+
+                # 各种输入情况下的输出
+                tva_output = model(text, vision, audio, is_distill=True)
+                tv_output = model(text, vision, audio_zero, is_distill=True)
+                ta_output = model(text, vision_zero, audio, is_distill=True)
+                va_output = model(text_zero, vision, audio, is_distill=True)
+                # 单模态就没必要使用蒸馏了
+                t_output = model(text, vision_zero, audio_zero)
+                v_output = model(text_zero, vision, audio_zero)
+                a_output = model(text_zero, vision_zero, audio)
+
+                # ! 原论文结果中，7类准确率结果普遍偏低，故而使用它作为分类指标
+                bins = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0]
+
+                for i, item in enumerate(labels):
+                    # 依次算出各种输入情况下的计算结果
+                    tva = np.digitize(tva_output[i].cpu().data.numpy(), bins)
+                    index_tva = np.argmax(tva)
+                    tv = np.digitize(tv_output[i].cpu().data.numpy(), bins)
+                    index_tv = np.argmax(tv)
+                    ta = np.digitize(ta_output[i].cpu().data.numpy(), bins)
+                    index_ta = np.argmax(ta)
+                    va = np.digitize(va_output[i].cpu().data.numpy(), bins)
+                    index_va = np.argmax(va)
+                    t = np.digitize(t_output[i].cpu().data.numpy(), bins)
+                    index_t = np.argmax(t)
+                    v = np.digitize(v_output[i].cpu().data.numpy(), bins)
+                    index_v = np.argmax(v)
+                    a = np.digitize(a_output[i].cpu().data.numpy(), bins)
+                    index_a = np.argmax(a)
+
+                    index_label = np.digitize(labels[i].cpu().data.numpy(), bins)
+
+                    # 根据公式计算贡献值
+                    value_tva = 0.0
+                    value_tv = 0.0
+                    value_ta = 0.0
+                    value_va = 0.0
+                    value_t = 0.0
+                    value_v = 0.0
+                    value_a = 0.0
+                    if index_tva == index_label:
+                        value_tva = 3.0
+                    if index_tv == index_label:
+                        value_tv = 2.0
+                    if index_ta == index_label:
+                        value_ta = 2.0
+                    if index_va == index_label:
+                        value_va = 2.0
+                    if index_t == index_label:
+                        value_t = 1.0
+                    if index_v == index_label:
+                        value_v = 1.0
+                    if index_a == index_label:
+                        value_a = 1.0
+
+                    contrib_t = (1.0 / 3.0) * (value_t + value_tva - value_va) + (1.0 / 6.0) * (value_ta + value_tv - value_v - value_a)
+                    contrib_t = max(0, contrib_t)
+                    contrib_v = (1.0 / 3.0) * (value_v + value_tva - value_ta) + (1.0 / 6.0) * (value_tv + value_va - value_t - value_a)
+                    contrib_v = max(0, contrib_v)
+                    contrib_a = (1.0 / 3.0) * (value_a + value_tva - value_tv) + (1.0 / 6.0) * (value_ta + value_va - value_t - value_v)
+                    contrib_a = max(0, contrib_a)
+
+                    contribution[int(index[i])] = (contrib_t, contrib_v, contrib_a)
+
+        cont /= len(dataloader['train'].dataset)
+        conv /= len(dataloader['train'].dataset)
+        cona /= len(dataloader['train'].dataset)
+
+        # 打印日志
+        if not os.path.exists(os.path.join(args.log_path, log_name)):
+            os.mkdir(os.path.join(args.log_path, log_name))
+        if not os.path.exists(os.path.join(args.log_path, log_name, "contribution")):
+            os.mkdir(os.path.join(args.log_path, log_name, "contribution"))
+        np.save(
+            os.path.join(args.log_path, log_name, "contribution", str(epoch) + ".npy"),
+            contribution,
+        )
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        print("now train epoch, cont, conv and cona: ", cont, conv, cona)
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        # ! 下面是重采样部分
+        if epoch >= args.warmup - 1:  # 超出预热阶段才开始重采样
+            part_cont = 0.0
+            part_cona = 0.0
+            part_conv = 0.0
+            num = int(len(dataloader['train'].dataset) * args.part_radio)  # 重采样次数
+            choice = np.random.choice(len(dataloader['train'].dataset), num)
+            print(f"length of choice: {len(choice)}")
+            for i in choice:
+                contri_t, contri_v, contri_a = contribution[i]
+                part_cont += contri_t
+                part_conv += contri_v
+                part_cona += contri_a
+            part_cont /= num
+            part_conv /= num
+            part_cona /= num
+            part_t.append(part_cont)
+            part_v.append(part_conv)
+            part_a.append(part_cona)
+            gap_t = 1.0 - part_cont
+            gap_v = 1.0 - part_conv
+            gap_a = 1.0 - part_cona
+            # 现在有 3 个模态了，给绝对值取个平均
+            part_difference = (abs(gap_t - gap_v) + abs(gap_t - gap_a) + abs(gap_a - gap_v)) / 3.0 / 3 * 2 * args.alpha
+            print("part_p: ", part_difference)
+            # 执行重采样
+            train_dataset = MMDataset_modality_level(
+                args=args,
+                contribution_t=part_t,
+                contribution_a=part_a,
+                contribution_v=part_v,
+                alpha=args.alpha
+            )
+            dataloader = MMDataLoader_modality_level(
+                args=args,
+                num_workers=4,
+                train_dataset=train_dataset
+            )
+        return cont, cona, conv, dataloader
+
     def do_train(self, model, dataloader, return_epoch_results=False):
+        # 定义需要的变量
+        cont_all = []
+        conv_all = []
+        cona_all = []
 
         # 0: DMD model, 1: Homo GD, 2: Hetero GD
         params = list(model[0].parameters()) + \
@@ -67,7 +242,7 @@ class DMD():
                 mod.train()
 
             train_loss = 0.0
-            left_epochs = self.args.update_epochs  # 默认值为 10，使得梯度累计 10 次才更新一次，其实就是 10 个 batch 更新一次
+            left_epochs = self.args.update_epochs  # 默认值为 10，使得梯度累计 10 次才更新一次
             with tqdm(dataloader['train']) as td:
                 for batch_data in td:
                     # 在小批量训练中模拟大批量训练的效果，节省显存

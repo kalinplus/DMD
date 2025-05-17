@@ -181,10 +181,10 @@ class MMDataset(Dataset):
             sample['audio_lengths'] = self.audio_lengths[index]
             sample['vision_lengths'] = self.vision_lengths[index]
         return sample
+
 '''
 返回一个字典，里面包含 3 个 dataloader
 '''
-# TODO: 改这里，动态重采样
 def MMDataLoader(args, num_workers):
 
     datasets = {
@@ -216,6 +216,7 @@ def MMDataLoader(args, num_workers):
 模态级重采样
 '''
 class MMDataset_modality_level(Dataset):
+    # args 是 DMD 中就有的，不是 VEMC 里的
     def __init__(self, args, contribution_t, contribution_v, contribution_a, alpha, func='linear', mode='train'):
         self.mode = mode
         self.args = args
@@ -434,11 +435,12 @@ class MMDataset_modality_level(Dataset):
 '''
 返回一个字典，里面包含 3 个 dataloader
 '''
-# TODO: 改这里，动态重采样
-def MMDataLoader_modality_level(args, num_workers):
+# ! 这里也要改， VEMC 中用的是正规的 Dataloader，这里用的是自定义的
+# 传入 train_dataset 即可
+def MMDataLoader_modality_level(args, num_workers, train_dataset):
 
     datasets = {
-        'train': MMDataset(args, mode='train'),
+        'train': train_dataset,
         'valid': MMDataset(args, mode='valid'),
         'test': MMDataset(args, mode='test')
     }
@@ -451,7 +453,8 @@ def MMDataLoader_modality_level(args, num_workers):
         ds: DataLoader(datasets[ds],
                        batch_size=args['batch_size'],
                        num_workers=num_workers,
-                       shuffle=True)
+                       shuffle=True,
+                       pin_memory=True)
         for ds in datasets.keys()  # train, valid, test
     }
     

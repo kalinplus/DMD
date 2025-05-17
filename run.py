@@ -5,7 +5,7 @@ import logging
 import os
 
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import time
 from pathlib import Path
