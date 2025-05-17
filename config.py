@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 from easydict import EasyDict as edict
 
-
+"""
+选择加载哪个数据集
+"""
 def get_config_regression(model_name, dataset_name, config_file=""):
     """
     Get the regression config of given dataset and model from config file.

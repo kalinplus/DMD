@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
+   
 import gc
 import logging
 import os
 
-# 设置 hugging face 代理路径
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import time
 from pathlib import Path
@@ -20,7 +22,7 @@ from trains.singleTask.misc import softmax
 import sys
 # 确保 GPU 编号在不同运行环境中一致
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:3"
 logger = logging.getLogger('MMSA')
 
 def _set_logger(log_dir, model_name, dataset_name, verbose_level):
@@ -183,7 +185,7 @@ def _run(args, num_workers=4, is_tune=False, from_sena=False):
 
 
     if args.mode == 'test':  # 进行测试
-        model.load_state_dict(torch.load('pt/mosi-aligned.pth'))
+        model.load_state_dict(torch.load('pt/mosi/unaligned/mosi-unaligned.pth'))
         results = trainer.do_test(model, dataloader['test'], mode="TEST")
         sys.stdout.flush()
         input('[Press Any Key to start another run]')

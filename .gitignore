@@ -1,7 +1,10 @@
 .idea
 dataset/MOSI
+dataset/MOSEI
 log/dmd-mosi.log
 pt/*.pth
+pt/mosi
+pt/mosei
 
 # Python generated cache
 __pycache__/

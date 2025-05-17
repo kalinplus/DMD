@@ -42,9 +42,9 @@ class MMDataset(Dataset):
         self.ids = data[self.mode]['id']
 
         # 打印数据维度
-        print(f"text: {self.text.shape}")
-        print(f"vision: {self.vision.shape}")
-        print(f"audio: {self.audio.shape}")
+        # print(f"text: {self.text.shape}")
+        # print(f"vision: {self.vision.shape}")
+        # print(f"audio: {self.audio.shape}")
 
         # 如果用户指定了额外的各个模态的路径，则用这些特征替换对应的模态特征 (run.py 中默认为空)
         if self.args['feature_T'] != "":
