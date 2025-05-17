@@ -208,6 +208,13 @@ def MMDataLoader(args, num_workers):
     return dataLoader
 
 
+
+
+
+
+'''
+模态级重采样
+'''
 class MMDataset_modality_level(Dataset):
     def __init__(self, args, contribution_t, contribution_v, contribution_a, alpha, func='linear', mode='train'):
         self.mode = mode
@@ -230,7 +237,6 @@ class MMDataset_modality_level(Dataset):
         '''
         # 记录要保留的模态，因为重采样只会保留引起重采样的那个模态
         # remain all = 0, text = 1, vision = 2, audio = 3
-        self.remain = []
         with open(self.args['featurePath'], 'rb') as f:
             data = pickle.load(f)
         if 'use_bert' in self.args and self.args['use_bert']:
@@ -246,6 +252,7 @@ class MMDataset_modality_level(Dataset):
         self.raw_text = data[self.mode]['raw_text']
         # id 对应的应该是有点杂乱无章的那些文件名
         self.ids = data[self.mode]['id']
+        self.remain = np.zeros_like(self.ids)
 
         # 打印数据维度
         # print(f"text: {self.text.shape}")
@@ -280,7 +287,7 @@ class MMDataset_modality_level(Dataset):
         self.labels = {
             'M': np.array(data[self.mode]['regression_labels']).astype(np.float32)
         }
-        self.drop = torch.zeros_like(self.labels)
+        self.drop = np.zeros_like(self.labels)
         
         print('data load finish')
         # print(f"labels: {self.labels['M'].shape}")
@@ -305,14 +312,15 @@ class MMDataset_modality_level(Dataset):
         
         '''    
         上面都处理完毕，接下来开始重采样
-        需要修改的变量有 self.text, self.vision, self.audio, self.ids, self.labels (全改防止长度不匹配)
+        TODO: 需要修改的变量有 self.text, self.vision, self.audio, self.ids, self.labels (全改防止长度不匹配)
+        TODO: 取舍，是丢弃最强模态，促进另外两个模态的学习；还是只保留最弱模态并强化其学习？这里选择的是后者
         '''
         length = len(self.labels)
         gap_t = 1.0 - contribution_t
         gap_v = 1.0 - contribution_v
         gap_a = 1.0 - contribution_a
         # 论文和代码都没有给出超过 2 个模态的情况具体是如何计算的
-        difference_base = abs(gap_a - gap_v) + abs(gap_a - gap_t) + abs(gap_v - gap_t)
+        difference_base = (abs(gap_a - gap_v) + abs(gap_a - gap_t) + abs(gap_v - gap_t)) / 3.0
         if func == 'linear':
             difference = (difference_base / 3 * 2 ) * alpha
         elif func == 'tanh':
@@ -324,17 +332,22 @@ class MMDataset_modality_level(Dataset):
         resample_num = int(difference * length)
         sample_choice = np.random.choice(length, resample_num)
         for i in sample_choice:
-            self.text.append(self.text[i])
-            self.vision.append(self.vision[i])
-            self.audio.append(self.audio[i])
-            self.ids.append(self.ids[i])
+            self.text = np.concatenate([self.text, [self.text[i]]], axis=0)
+            self.vision = np.concatenate([self.vision, [self.vision[i]]], axis=0)
+            self.audio = np.concatenate([self.audio, [self.audio[i]]], axis=0)
+            self.ids = np.concatenate([self.ids, [self.ids[i]]], axis=0)
+            self.labels['M'] = np.concatenate([self.labels['M'], [self.labels['M'][i]]], axis=0)
+            # gap 越大，说明提升空间越大，越应该保留
+            gaps = [gap_t, gap_v, gap_a]
+            self.remain = np.concatenate([self.remain, np.argmax(gaps) + 1], axis=0)
+        print("data resample finish")
             
         
-    def __init_mosei(self):
-        return self.__init_mosi()
+    def __init_mosei(self, contribution_t, contribution_v, contribution_a, alpha, func='linear'):
+        return self.__init_mosi(self, contribution_t, contribution_v, contribution_a, alpha, func)
 
-    def __init_sims(self):
-        return self.__init_mosi()
+    def __init_sims(self, contribution_t, contribution_v, contribution_a, alpha, func='linear'):
+        return self.__init_mosi(self, contribution_t, contribution_v, contribution_a, alpha, func)
     '''
     虽然写的很复杂，但是代码中根本没有用到这个函数...
     '''
@@ -411,8 +424,8 @@ class MMDataset_modality_level(Dataset):
             'vision': torch.Tensor(self.vision[index]),
             'index': index,
             'id': self.ids[index],
-            # 'M': 展品为一维的数据（张量）
-            'labels': {k: torch.Tensor(v[index].reshape(-1)) for k, v in self.labels.items()}
+            'labels': {k: torch.Tensor(v[index].reshape(-1)) for k, v in self.labels.items()},  # 'M': 展开为一维的数据（张量）
+            'remain': self.remain[index]
         }
         if not self.args['need_data_aligned']:  # 如果原始未对齐，则只传递音频和视觉模态的实际有效长度，默认为 True（config.json)
             sample['audio_lengths'] = self.audio_lengths[index]
@@ -422,7 +435,7 @@ class MMDataset_modality_level(Dataset):
 返回一个字典，里面包含 3 个 dataloader
 '''
 # TODO: 改这里，动态重采样
-def MMDataLoader(args, num_workers):
+def MMDataLoader_modality_level(args, num_workers):
 
     datasets = {
         'train': MMDataset(args, mode='train'),
